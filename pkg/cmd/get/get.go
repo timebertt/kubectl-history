@@ -36,7 +36,7 @@ func NewCommand(f util.Factory, streams genericiooptions.IOStreams) *cobra.Comma
 	o := NewOptions(streams)
 
 	cmd := &cobra.Command{
-		Use:     "get (TYPE[.VERSION][.GROUP] NAME | TYPE[.VERSION][.GROUP]/NAME)",
+		Use:     "get (TYPE[.VERSION][.GROUP] [NAME | -l label] | TYPE[.VERSION][.GROUP]/NAME ...)",
 		Aliases: []string{"list", "ls"},
 
 		Short: "Get the revision history of a workload resource",
@@ -94,6 +94,7 @@ func (o *Options) Run(ctx context.Context, f util.Factory, args []string) (err e
 		NamespaceParam(o.Namespace).DefaultNamespace().
 		ResourceTypeOrNameArgs(true, args...).
 		SingleResourceType().
+		Flatten().
 		Do()
 
 	if err := r.Err(); err != nil {
@@ -109,39 +110,49 @@ func (o *Options) Run(ctx context.Context, f util.Factory, args []string) (err e
 	if err != nil {
 		return err
 	}
-	info := infos[0]
-	groupKind := info.Mapping.GroupVersionKind.GroupKind()
+
+	if len(infos) == 0 {
+		_, _ = fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
+		return
+	}
+
+	groupKind := infos[0].Mapping.GroupVersionKind.GroupKind()
 	kindString := fmt.Sprintf("%s.%s", strings.ToLower(groupKind.Kind), groupKind.Group)
 
-	// get all revisions for the given object
-	hist, err := history.ForGroupKind(c, groupKind)
-	if err != nil {
-		return err
-	}
-
-	revs, err := hist.ListRevisions(ctx, client.ObjectKey{Namespace: info.Namespace, Name: info.Name})
-	if err != nil {
-		return err
-	}
-	if len(revs) == 0 {
-		return fmt.Errorf("no revisions found for %s/%s", kindString, info.Name)
-	}
-
-	o.PrintFlags.SetKind(revs[0].GetObjectKind().GroupVersionKind().GroupKind())
+	o.PrintFlags.SetKind(groupKind)
 	p, err := o.PrintFlags.ToPrinter()
 	if err != nil {
 		return err
 	}
 
-	if o.Revision != 0 {
-		// select a single revision
-		rev, err := revs.ByNumber(o.Revision)
+	var allRevisions history.Revisions
+	for _, info := range infos {
+		// get all revisions for the given object
+		hist, err := history.ForGroupKind(c, info.Mapping.GroupVersionKind.GroupKind())
 		if err != nil {
 			return err
 		}
 
-		return p.PrintObj(rev, o.Out)
+		revs, err := hist.ListRevisions(ctx, client.ObjectKey{Namespace: info.Namespace, Name: info.Name})
+		if err != nil {
+			return err
+		}
+		if len(revs) == 0 {
+			return fmt.Errorf("no revisions found for %s/%s", kindString, info.Name)
+		}
+
+		if o.Revision != 0 {
+			// select a single revision
+			rev, err := revs.ByNumber(o.Revision)
+			if err != nil {
+				return fmt.Errorf("error for %s/%s: %w", kindString, info.Name, err)
+			}
+
+			allRevisions = append(allRevisions, rev)
+		} else {
+			allRevisions = append(allRevisions, revs...)
+		}
 	}
 
-	return p.PrintObj(revs, o.Out)
+	return p.PrintObj(allRevisions, o.Out)
 }
