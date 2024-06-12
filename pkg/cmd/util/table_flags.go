@@ -16,7 +16,8 @@ type TablePrintFlags struct {
 	ColumnLabels []string
 	ShowKind     *bool
 
-	Kind schema.GroupKind
+	Kind          schema.GroupKind
+	WithNamespace bool
 }
 
 func NewTablePrintFlags() *TablePrintFlags {
@@ -37,18 +38,23 @@ func (f *TablePrintFlags) SetKind(kind schema.GroupKind) {
 	f.Kind = kind
 }
 
+func (f *TablePrintFlags) SetWithNamespace() {
+	f.WithNamespace = true
+}
+
 func (f *TablePrintFlags) ToPrinter(outputFormat string) (printers.ResourcePrinter, error) {
 	if f == nil || (len(outputFormat) > 0 && outputFormat != "wide") {
 		return nil, genericclioptions.NoCompatiblePrinterError{Options: f, AllowedFormats: f.AllowedFormats()}
 	}
 
 	p := printers.NewTablePrinter(printers.PrintOptions{
-		Kind:         f.Kind,
-		NoHeaders:    pointer.BoolDeref(f.NoHeaders, false),
-		ShowLabels:   pointer.BoolDeref(f.ShowLabels, false),
-		ColumnLabels: f.ColumnLabels,
-		WithKind:     pointer.BoolDeref(f.ShowKind, false),
-		Wide:         outputFormat == "wide",
+		Kind:          f.Kind,
+		NoHeaders:     pointer.BoolDeref(f.NoHeaders, false),
+		ShowLabels:    pointer.BoolDeref(f.ShowLabels, false),
+		ColumnLabels:  f.ColumnLabels,
+		WithKind:      pointer.BoolDeref(f.ShowKind, false),
+		Wide:          outputFormat == "wide",
+		WithNamespace: f.WithNamespace,
 	})
 
 	return printer.RevisionsToTablePrinter{

@@ -18,7 +18,12 @@ import (
 type Options struct {
 	genericiooptions.IOStreams
 
-	Namespace  string
+	Namespace     string
+	AllNamespaces bool
+
+	ChunkSize     int64
+	LabelSelector string
+
 	Revision   int64
 	PrintFlags *util.PrintFlags
 }
@@ -72,6 +77,10 @@ kubectl revisions get deploy nginx --revision=-1 -o yaml
 	cmd.Flags().Int64VarP(&o.Revision, "revision", "r", 0, "Print the specified revision instead of getting the entire history. "+
 		"Specify -1 for the latest revision, -2 for the one before the latest, etc.")
 
+	cmd.Flags().BoolVarP(&o.AllNamespaces, "all-namespaces", "A", o.AllNamespaces, "If present, list the requested object(s) across all namespaces. Namespace in current context is ignored even if specified with --namespace.")
+	cmdutil.AddChunkSizeFlag(cmd, &o.ChunkSize)
+	cmdutil.AddLabelSelectorFlagVar(cmd, &o.LabelSelector)
+
 	return cmd
 }
 
@@ -91,7 +100,9 @@ func (o *Options) Validate() error {
 func (o *Options) Run(ctx context.Context, f util.Factory, args []string) (err error) {
 	r := f.NewBuilder().
 		Unstructured().
-		NamespaceParam(o.Namespace).DefaultNamespace().
+		NamespaceParam(o.Namespace).DefaultNamespace().AllNamespaces(o.AllNamespaces).
+		LabelSelectorParam(o.LabelSelector).
+		RequestChunksOf(o.ChunkSize).
 		ResourceTypeOrNameArgs(true, args...).
 		SingleResourceType().
 		Flatten().
@@ -120,6 +131,9 @@ func (o *Options) Run(ctx context.Context, f util.Factory, args []string) (err e
 	kindString := fmt.Sprintf("%s.%s", strings.ToLower(groupKind.Kind), groupKind.Group)
 
 	o.PrintFlags.SetKind(groupKind)
+	if o.AllNamespaces {
+		o.PrintFlags.SetWithNamespace()
+	}
 	p, err := o.PrintFlags.ToPrinter()
 	if err != nil {
 		return err
